@@ -1,0 +1,16 @@
+[package]
+name = "otocap-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cpal = { workspace = true }
+hound = { workspace = true }
+rtrb = { workspace = true }
+thiserror = { workspace = true }
+webrtc-audio-processing = { workspace = true }
+nnnoiseless = { workspace = true }
+rodio = { workspace = true }
+flac-bound = { workspace = true }
+opus = { workspace = true }
+mp3lame-encoder = { workspace = true }
