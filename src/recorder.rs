@@ -1,11 +1,11 @@
-use crate::{CaptureOptions, ProcessingMode};
+use crate::CaptureOptions;
 use crate::devices::get_input_device;
 use crate::encoder::AudioEncoder;
 use crate::processor::AudioProcessor;
 
 use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{SampleFormat, StreamConfig};
-use rtrb::{Consumer, Producer, RingBuffer};
+use rtrb::RingBuffer;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -30,7 +30,9 @@ pub enum RecorderError {
 
 pub struct ActiveRecording {
     stop_signal: Arc<AtomicBool>,
+    pause_signal: Arc<AtomicBool>,
     stream: cpal::Stream,
+    pub samples_rx: tokio::sync::broadcast::Receiver<Vec<f32>>,
     // Keep handle to background thread for joining
     process_handle: Option<thread::JoinHandle<()>>,
 }
@@ -46,6 +48,33 @@ impl ActiveRecording {
         }
         
         Ok(())
+    }
+
+    pub fn pause(&self) {
+        self.pause_signal.store(true, Ordering::SeqCst);
+    }
+
+    pub fn resume(&self) {
+        self.pause_signal.store(false, Ordering::SeqCst);
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.pause_signal.load(Ordering::SeqCst)
+    }
+}
+
+impl Drop for ActiveRecording {
+    fn drop(&mut self) {
+        // Signal thread to stop
+        self.stop_signal.store(true, Ordering::SeqCst);
+        
+        // Pause stream to stop callbacks
+        let _ = self.stream.pause();
+        
+        // Wait for thread to finish if it hasn't been joined yet
+        if let Some(handle) = self.process_handle.take() {
+            let _ = handle.join();
+        }
     }
 }
 
@@ -71,28 +100,45 @@ pub fn start_recording<P: AsRef<std::path::Path>>(
 
     let stop_signal = Arc::new(AtomicBool::new(false));
     let stop_thread = stop_signal.clone();
+    let pause_signal = Arc::new(AtomicBool::new(false));
+    let pause_thread = pause_signal.clone();
+    
+    let (samples_tx, samples_rx) = tokio::sync::broadcast::channel::<Vec<f32>>(100);
     
     let mut encoder = AudioEncoder::new(output_path, sample_rate, channels)?;
-    let mut processor = AudioProcessor::new(options.processing_mode, options.high_pass_filter);
+    let mut processor = AudioProcessor::with_sample_rate(options.processing_mode, options.high_pass_filter, sample_rate, channels);
 
     let process_handle = thread::spawn(move || {
-        let mut local_buffer = vec![0i16; 480 * channels as usize];
+        let chunk_size = 480 * channels as usize;
+        let _local_buffer = vec![0i16; chunk_size];
         
-        loop {
-            let stopped = stop_thread.load(Ordering::Relaxed);
+        while !stop_thread.load(Ordering::Relaxed) || !consumer.is_empty() {
             let available = consumer.slots();
-
-            if available >= local_buffer.len() {
-                if let Ok(chunk) = consumer.read_chunk(local_buffer.len()) {
+            if available >= chunk_size {
+                if let Ok(chunk) = consumer.read_chunk(chunk_size) {
                     let mut data = chunk.into_iter().collect::<Vec<i16>>();
-                    processor.process_frame(&mut data);
-                    
-                    if let Err(e) = encoder.write_samples(&data) {
-                        eprintln!("Encoding failed: {}", e);
+                    if !pause_thread.load(Ordering::Relaxed) {
+                        processor.process_frame(&mut data);
+                        let gui_samples: Vec<f32> = data.iter().step_by(channels as usize * 4).map(|&s| s as f32 / i16::MAX as f32).collect();
+                        let _ = samples_tx.send(gui_samples);
+                        if let Err(e) = encoder.write_samples(&data) {
+                            eprintln!("Encoding failed: {}", e);
+                        }
                     }
                 }
-            } else if stopped {
-                // If we've been told to stop and there are no full chunks left, exit.
+            } else if stop_thread.load(Ordering::Relaxed) && available > 0 {
+                // Drain the remaining samples even if less than a full chunk
+                if let Ok(chunk) = consumer.read_chunk(available) {
+                    let mut data = chunk.into_iter().collect::<Vec<i16>>();
+                    if !pause_thread.load(Ordering::Relaxed) {
+                        // We might not be able to process a partial frame with WebRTC/RNNoise correctly
+                        // but we can still write it to the encoder (especially WAV)
+                        if let Err(e) = encoder.write_samples(&data) {
+                            eprintln!("Encoding failed: {}", e);
+                        }
+                    }
+                }
+            } else if stop_thread.load(Ordering::Relaxed) && available == 0 {
                 break;
             } else {
                 thread::sleep(Duration::from_millis(5));
@@ -135,7 +181,9 @@ pub fn start_recording<P: AsRef<std::path::Path>>(
 
     Ok(ActiveRecording {
         stop_signal,
+        pause_signal,
         stream,
+        samples_rx,
         process_handle: Some(process_handle),
     })
 }

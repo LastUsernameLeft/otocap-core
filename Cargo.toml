@@ -11,6 +11,6 @@ thiserror = { workspace = true }
 webrtc-audio-processing = { workspace = true }
 nnnoiseless = { workspace = true }
 rodio = { workspace = true }
-flac-bound = { workspace = true }
 opus = { workspace = true }
 mp3lame-encoder = { workspace = true }
+tokio = { version = "1.37", features = ["sync"] }

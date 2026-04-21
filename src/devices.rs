@@ -24,14 +24,17 @@ pub fn list_input_devices() -> Result<Vec<AudioDevice>, DeviceError> {
     let default_name = default_in.as_ref().and_then(|d| d.name().ok());
 
     let mut devices = Vec::new();
-    let cp_devices = host.input_devices().map_err(|_| DeviceError::EnumerateError)?;
+    let cp_devices = host
+        .input_devices()
+        .map_err(|_| DeviceError::EnumerateError)?;
 
     for device in cp_devices {
         if let Ok(name) = device.name() {
             let is_default = default_name.as_ref() == Some(&name);
-            
+
             // Try to gently probe supported configs to get a sense of capability
-            let (sample_rate, channels) = if let Ok(mut configs) = device.supported_input_configs() {
+            let (sample_rate, channels) = if let Ok(mut configs) = device.supported_input_configs()
+            {
                 if let Some(config) = configs.next() {
                     (config.max_sample_rate().0, config.channels())
                 } else {
@@ -55,9 +58,11 @@ pub fn list_input_devices() -> Result<Vec<AudioDevice>, DeviceError> {
 
 pub fn get_input_device(name: Option<&str>) -> Result<cpal::Device, DeviceError> {
     let host = cpal::default_host();
-    
+
     if let Some(target) = name {
-        let cp_devices = host.input_devices().map_err(|_| DeviceError::EnumerateError)?;
+        let cp_devices = host
+            .input_devices()
+            .map_err(|_| DeviceError::EnumerateError)?;
         for device in cp_devices {
             if let Ok(device_name) = device.name() {
                 if device_name == target {
@@ -67,6 +72,7 @@ pub fn get_input_device(name: Option<&str>) -> Result<cpal::Device, DeviceError>
         }
         Err(DeviceError::NotFound(target.to_string()))
     } else {
-        host.default_input_device().ok_or(DeviceError::NotFound("Default device".to_string()))
+        host.default_input_device()
+            .ok_or(DeviceError::NotFound("Default device".to_string()))
     }
 }
