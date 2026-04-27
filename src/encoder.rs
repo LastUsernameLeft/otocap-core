@@ -10,6 +10,8 @@ pub enum EncoderError {
     WavError(#[from] hound::Error),
     #[error("MP3 encoding error: {0}")]
     Mp3Error(String),
+    #[error("FLAC encoding error: {0}")]
+    FlacError(String),
     #[error("Opus encoding error: {0}")]
     OpusError(String),
     #[error("IO error: {0}")]

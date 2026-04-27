@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 cpal = { workspace = true }
+chrono = { workspace = true }
 hound = { workspace = true }
 rtrb = { workspace = true }
 thiserror = { workspace = true }

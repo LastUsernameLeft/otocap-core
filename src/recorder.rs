@@ -105,7 +105,7 @@ pub fn start_recording<P: AsRef<std::path::Path>>(
     
     let (samples_tx, samples_rx) = tokio::sync::broadcast::channel::<Vec<f32>>(100);
     
-    let mut encoder = AudioEncoder::new(output_path, sample_rate, channels)?;
+    let mut encoder = AudioEncoder::with_format(output_path, sample_rate, channels, options.output_format)?;
     let mut processor = AudioProcessor::with_sample_rate(options.processing_mode, options.high_pass_filter, sample_rate, channels);
 
     let process_handle = thread::spawn(move || {
@@ -191,6 +191,7 @@ pub fn start_recording<P: AsRef<std::path::Path>>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ProcessingMode;
 
     #[test]
     fn test_recorder_options_default() {
