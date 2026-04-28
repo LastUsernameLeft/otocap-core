@@ -32,6 +32,14 @@ impl Default for OutputFormat {
 }
 
 impl OutputFormat {
+    pub fn extension(&self) -> &'static str {
+        match self {
+            Self::Wav => "wav",
+            Self::Mp3 => "mp3",
+            Self::Opus => "opus",
+        }
+    }
+
     pub fn from_extension(path: &Path) -> Self {
         match path
             .extension()

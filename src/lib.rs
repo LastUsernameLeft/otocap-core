@@ -3,9 +3,11 @@ pub mod encoder;
 pub mod processor;
 pub mod recorder;
 pub mod controller;
+pub mod manager;
 
 pub use encoder::OutputFormat;
 pub use controller::{RecordingController, ControllerError, ActiveRecordingHandle};
+pub use manager::{RecordingsManager, RecordingEntry, ManagerError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProcessingMode {

@@ -127,12 +127,11 @@ pub fn start_recording<P: AsRef<std::path::Path>>(
                     }
                 }
             } else if stop_thread.load(Ordering::Relaxed) && available > 0 {
-                // Drain the remaining samples even if less than a full chunk
+                // Drain remaining samples through processor for proper handling
                 if let Ok(chunk) = consumer.read_chunk(available) {
-                    let mut data = chunk.into_iter().collect::<Vec<i16>>();
+                    let data = chunk.into_iter().collect::<Vec<i16>>();
                     if !pause_thread.load(Ordering::Relaxed) {
-                        // We might not be able to process a partial frame with WebRTC/RNNoise correctly
-                        // but we can still write it to the encoder (especially WAV)
+                        processor.process_frame(&mut data.clone());
                         if let Err(e) = encoder.write_samples(&data) {
                             eprintln!("Encoding failed: {}", e);
                         }
@@ -143,8 +142,16 @@ pub fn start_recording<P: AsRef<std::path::Path>>(
             } else {
                 thread::sleep(Duration::from_millis(5));
             }
+         }
+         
+        // Flush any remaining buffered samples from processor
+        let flushed = processor.flush();
+        if !flushed.is_empty() && !pause_thread.load(Ordering::Relaxed) {
+            if let Err(e) = encoder.write_samples(&flushed) {
+                eprintln!("Encoding flush failed: {}", e);
+            }
         }
-        
+         
         if let Err(e) = encoder.finalize() {
             eprintln!("Failed to finalize encoding: {}", e);
         }

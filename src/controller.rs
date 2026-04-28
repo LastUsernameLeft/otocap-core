@@ -5,6 +5,7 @@ use thiserror::Error;
 use crate::{CaptureOptions, OutputFormat};
 use crate::devices::list_input_devices;
 use crate::recorder::{start_recording, ActiveRecording};
+use crate::manager::{RecordingsManager, RecordingEntry, ManagerError};
 
 #[derive(Debug, Error)]
 pub enum ControllerError {
@@ -14,18 +15,29 @@ pub enum ControllerError {
     Recording(String),
     #[error("Invalid capture options: {0}")]
     InvalidOptions(String),
+    #[error("Manager error: {0}")]
+    Manager(#[from] ManagerError),
 }
 
 /// Controller for audio recording operations
 /// Provides a unified API for both CLI and GUI applications
 pub struct RecordingController {
     default_device: Option<String>,
+    recordings_manager: RecordingsManager,
 }
 
 impl RecordingController {
     pub fn new() -> Self {
         Self {
             default_device: None,
+            recordings_manager: RecordingsManager::new(RecordingsManager::default_dir()),
+        }
+    }
+
+    pub fn with_storage_dir(storage_dir: PathBuf) -> Self {
+        Self {
+            default_device: None,
+            recordings_manager: RecordingsManager::new(storage_dir),
         }
     }
 
@@ -53,12 +65,15 @@ impl RecordingController {
         output_path: P,
         options: CaptureOptions,
     ) -> Result<ActiveRecordingHandle, ControllerError> {
-        // Validate options
         if options.output_format == OutputFormat::Opus {
             return Err(ControllerError::InvalidOptions(
                 "Opus output format is not yet supported".to_string()
             ));
         }
+
+        // Ensure storage directory exists
+        self.recordings_manager.ensure_storage_dir()
+            .map_err(|e| ControllerError::Manager(e))?;
 
         let active_recording = start_recording(output_path, options)
             .map_err(|e| ControllerError::Recording(e.to_string()))?;
@@ -68,13 +83,37 @@ impl RecordingController {
 
     /// Generate a default output filename based on current date/time and format
     pub fn generate_output_filename(&self, format: OutputFormat) -> PathBuf {
-        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-        let extension = match format {
-            OutputFormat::Wav => "wav",
-            OutputFormat::Mp3 => "mp3",
-            OutputFormat::Opus => "opus",
-        };
-        PathBuf::from(format!("recording_{}.{}", timestamp, extension))
+        let filename = self.recordings_manager.generate_filename(format);
+        self.recordings_manager.full_path(&filename)
+    }
+
+    /// List all saved recordings
+    pub fn list_recordings(&self) -> Result<Vec<RecordingEntry>, ControllerError> {
+        self.recordings_manager.list_recordings()
+            .map_err(Into::into)
+    }
+
+    /// Get metadata for a specific recording
+    pub fn get_recording(&self, filename: &str) -> Result<RecordingEntry, ControllerError> {
+        self.recordings_manager.get_recording(filename)
+            .map_err(Into::into)
+    }
+
+    /// Rename a recording
+    pub fn rename_recording(&self, old_name: &str, new_name: &str) -> Result<(), ControllerError> {
+        self.recordings_manager.rename(old_name, new_name)
+            .map_err(Into::into)
+    }
+
+    /// Delete a recording
+    pub fn delete_recording(&self, filename: &str) -> Result<(), ControllerError> {
+        self.recordings_manager.delete(filename)
+            .map_err(Into::into)
+    }
+
+    /// Get the storage directory
+    pub fn storage_dir(&self) -> &Path {
+        self.recordings_manager.storage_dir()
     }
 }
 
